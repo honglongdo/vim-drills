@@ -34,7 +34,7 @@
   align-items: center;
   justify-content: center;
   min-width: 0;
-  height: 64px;
+  height: 56px;
   border: 1px solid var(--border);
   border-bottom-width: 3px;
   border-radius: 6px;
@@ -218,4 +218,32 @@
   font-size: 12px;
   color: var(--accent);
   white-space: nowrap;
+}
+
+.key-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  z-index: 10;
+  width: max-content;
+  max-width: 220px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--text-h);
+  color: var(--bg);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-50%);
+  transition: opacity 0.1s;
+}
+
+.key:hover .key-tooltip {
+  opacity: 1;
+  visibility: visible;
 }
