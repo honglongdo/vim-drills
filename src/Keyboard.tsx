@@ -13,6 +13,42 @@ type Hint = {
   vimShift?: string
 }
 
+type Input = {
+  id: number
+  notation: string
+  code: string
+  shift: boolean
+  modified: boolean
+}
+
+const MAX_INPUTS = 40
+
+const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'])
+
+const KEY_NAMES: Record<string, string> = {
+  Escape: 'Esc',
+  Enter: 'CR',
+  Backspace: 'BS',
+  Tab: 'Tab',
+  Delete: 'Del',
+  ' ': 'Space',
+  ArrowUp: 'Up',
+  ArrowDown: 'Down',
+  ArrowLeft: 'Left',
+  ArrowRight: 'Right',
+}
+
+// Write a key press the way Vim's docs do: `w`, `A`, `<Esc>`, `<C-r>`.
+function toVimNotation(e: KeyboardEvent): string | null {
+  if (MODIFIER_KEYS.has(e.key)) return null
+
+  const named = KEY_NAMES[e.key] ?? (e.key.length > 1 ? e.key : undefined)
+  const base = named ?? (e.ctrlKey || e.altKey ? e.key.toLowerCase() : e.key)
+  const prefix = (e.ctrlKey ? 'C-' : '') + (e.altKey ? 'A-' : '')
+
+  return prefix || named ? `<${prefix}${base}>` : base
+}
+
 const ROWS: Key[][] = [
   [
     { code: 'Backquote', label: '`', shift: '~' },
@@ -177,11 +213,25 @@ const MODES = [
 function Keyboard() {
   const [pressed, setPressed] = useState<Set<string>>(new Set())
   const [modeId, setModeId] = useState('beginner')
+  const [inputs, setInputs] = useState<Input[]>([])
   const hints = MODES.find((m) => m.id === modeId)!.hints
 
   useEffect(() => {
-    const down = (e: KeyboardEvent) =>
+    let nextId = 0
+    const down = (e: KeyboardEvent) => {
       setPressed((prev) => new Set(prev).add(e.code))
+
+      const notation = toVimNotation(e)
+      if (!notation || e.repeat) return
+      const input = {
+        id: nextId++,
+        notation,
+        code: e.code,
+        shift: e.shiftKey,
+        modified: e.ctrlKey || e.altKey || e.metaKey,
+      }
+      setInputs((prev) => [...prev, input].slice(-MAX_INPUTS))
+    }
     const up = (e: KeyboardEvent) =>
       setPressed((prev) => {
         const next = new Set(prev)
@@ -217,39 +267,75 @@ function Keyboard() {
         ))}
       </div>
 
-      <div className="keyboard" role="img" aria-label="Keyboard with Vim key hints">
-        {ROWS.map((row, i) => (
-          <div className="keyboard-row" key={i}>
-            {row.map((key) => {
-              const hint = hints[key.code] ?? {}
-              return (
-                <div
-                  key={key.code}
-                  className={[
-                    'key',
-                    (hint.vim || hint.vimShift) && 'has-vim',
-                    pressed.has(key.code) && 'pressed',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  style={{ flexGrow: key.width ?? 1 }}
-                  title={
-                    [hint.vim, hint.vimShift && `⇧ ${hint.vimShift}`]
+      <div className="keyboard-body">
+        <div className="keyboard" role="img" aria-label="Keyboard with Vim key hints">
+          {ROWS.map((row, i) => (
+            <div className="keyboard-row" key={i}>
+              {row.map((key) => {
+                const hint = hints[key.code] ?? {}
+                return (
+                  <div
+                    key={key.code}
+                    className={[
+                      'key',
+                      (hint.vim || hint.vimShift) && 'has-vim',
+                      pressed.has(key.code) && 'pressed',
+                    ]
                       .filter(Boolean)
-                      .join('\n') || undefined
-                  }
-                >
-                  {key.shift && <span className="key-shift">{key.shift}</span>}
-                  <span className="key-label">{key.label}</span>
-                  {hint.vim && <span className="key-vim">{hint.vim}</span>}
-                  {hint.vimShift && (
-                    <span className="key-vim">⇧ {hint.vimShift}</span>
-                  )}
-                </div>
-              )
-            })}
+                      .join(' ')}
+                    style={{ flexGrow: key.width ?? 1 }}
+                    title={
+                      [hint.vim, hint.vimShift && `⇧ ${hint.vimShift}`]
+                        .filter(Boolean)
+                        .join('\n') || undefined
+                    }
+                  >
+                    {key.shift && <span className="key-shift">{key.shift}</span>}
+                    <span className="key-label">{key.label}</span>
+                    {hint.vim && <span className="key-vim">{hint.vim}</span>}
+                    {hint.vimShift && (
+                      <span className="key-vim">⇧ {hint.vimShift}</span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+
+        <div className="input-log">
+          <div className="input-log-header">
+            <span>Your input</span>
+            <button
+              type="button"
+              className="keyboard-tab"
+              onClick={() => setInputs([])}
+              disabled={inputs.length === 0}
+            >
+              Clear
+            </button>
           </div>
-        ))}
+          <div className="input-log-keys">
+            {inputs.length === 0 ? (
+              <span className="input-log-empty">Start typing…</span>
+            ) : (
+              inputs.map((input) => {
+                const hint = hints[input.code] ?? {}
+                const meaning = input.modified
+                  ? undefined
+                  : input.shift
+                    ? hint.vimShift
+                    : hint.vim
+                return (
+                  <div className="input-log-entry" key={input.id}>
+                    <kbd>{input.notation}</kbd>
+                    {meaning && <span className="input-log-meaning">{meaning}</span>}
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )
