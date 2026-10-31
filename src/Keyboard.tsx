@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { CommandSet } from './solver.ts'
 import './Keyboard.css'
 
 type Key = {
@@ -19,6 +20,8 @@ type Input = {
   code: string
   shift: boolean
   modified: boolean
+  // Typed as text in Insert/Replace mode, so it isn't a command.
+  typed: boolean
 }
 
 const MAX_INPUTS = 40
@@ -399,17 +402,34 @@ const DESCRIPTIONS: Record<string, Hint> = {
   Space: { vim: 'Moves one character right.' },
 }
 
-const MODES = [
+const MODES: { id: CommandSet; label: string; hints: Record<string, Hint> }[] = [
   { id: 'beginner', label: 'Beginner (vimtutor)', hints: BEGINNER },
   { id: 'complete', label: 'Complete', hints: COMPLETE },
 ]
 
-function Keyboard() {
+type KeyboardProps = {
+  // The drill editor's current Vim mode, e.g. 'normal' or 'insert'.
+  vimMode?: string
+  // Which command set's hints to show (the tabs above the keyboard).
+  commandSet: CommandSet
+  onCommandSetChange: (set: CommandSet) => void
+}
+
+function Keyboard({
+  vimMode = 'normal',
+  commandSet: modeId,
+  onCommandSetChange: setModeId,
+}: KeyboardProps) {
   const [pressed, setPressed] = useState<Set<string>>(new Set())
-  const [modeId, setModeId] = useState('beginner')
   const [inputs, setInputs] = useState<Input[]>([])
   const hints = MODES.find((m) => m.id === modeId)!.hints
   const shiftHeld = pressed.has('ShiftLeft') || pressed.has('ShiftRight')
+
+  // Read by the key listener below, which is only set up once.
+  const vimModeRef = useRef(vimMode)
+  useEffect(() => {
+    vimModeRef.current = vimMode
+  }, [vimMode])
 
   useEffect(() => {
     let nextId = 0
@@ -424,6 +444,9 @@ function Keyboard() {
         code: e.code,
         shift: e.shiftKey,
         modified: e.ctrlKey || e.altKey || e.metaKey,
+        typed:
+          e.key !== 'Escape' &&
+          (vimModeRef.current === 'insert' || vimModeRef.current === 'replace'),
       }
       setInputs((prev) => [...prev, input].slice(-MAX_INPUTS))
     }
@@ -435,12 +458,14 @@ function Keyboard() {
       })
     const clear = () => setPressed(new Set())
 
-    window.addEventListener('keydown', down)
-    window.addEventListener('keyup', up)
+    // Capture phase (`true`): the Vim editor stops keys it handles from
+    // bubbling up, so listen before the event reaches it.
+    window.addEventListener('keydown', down, true)
+    window.addEventListener('keyup', up, true)
     window.addEventListener('blur', clear)
     return () => {
-      window.removeEventListener('keydown', down)
-      window.removeEventListener('keyup', up)
+      window.removeEventListener('keydown', down, true)
+      window.removeEventListener('keyup', up, true)
       window.removeEventListener('blur', clear)
     }
   }, [])
@@ -477,6 +502,9 @@ function Keyboard() {
                 const corner = key.shift && (shiftHeld ? key.label : key.shift)
                 const desc = DESCRIPTIONS[key.code] ?? {}
                 const description = vim && (shiftHeld ? desc.vimShift : desc.vim)
+                // The keystroke in Vim notation, e.g. `a`, `A`, `$`, `<Esc>`.
+                const named = KEY_NAMES[key.code === 'Space' ? ' ' : key.code]
+                const shortcut = named ? `<${named}>` : label
                 return (
                   <div
                     key={key.code}
@@ -494,7 +522,8 @@ function Keyboard() {
                     {vim && <span className="key-vim">{vim}</span>}
                     {description && (
                       <span className="key-tooltip" role="tooltip">
-                        {description}
+                        {description}{' '}
+                        <span className="key-tooltip-shortcut">({shortcut})</span>
                       </span>
                     )}
                   </div>
@@ -522,7 +551,7 @@ function Keyboard() {
             ) : (
               inputs.map((input) => {
                 const hint = hints[input.code] ?? {}
-                const meaning = input.modified
+                const meaning = input.modified || input.typed
                   ? undefined
                   : input.shift
                     ? hint.vimShift

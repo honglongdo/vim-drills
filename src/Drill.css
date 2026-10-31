@@ -1,0 +1,224 @@
+.drill {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--code-bg);
+  text-align: left;
+}
+
+.drill-tasks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.drill-task-dot {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--accent-border);
+  }
+
+  &.solved {
+    border-color: var(--accent-border);
+    color: var(--accent);
+  }
+
+  &.active {
+    border-color: var(--accent);
+    background: var(--accent-bg);
+    color: var(--accent);
+  }
+}
+
+.drill-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+
+  h2 {
+    margin: 0;
+    font-size: 20px;
+  }
+}
+
+.drill-lesson {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.drill-instructions {
+  color: var(--text-h);
+  font-size: 15px;
+}
+
+.drill-keys {
+  display: flex;
+  gap: 6px;
+
+  kbd {
+    padding: 2px 8px;
+    border: 1px solid var(--accent-border);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    background: var(--bg);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 14px;
+  }
+}
+
+.drill-editor {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+
+  .cm-editor {
+    font-family: var(--mono);
+    font-size: 16px;
+  }
+
+  .cm-editor.cm-focused {
+    outline: none;
+  }
+
+  .cm-content {
+    padding: 10px 0;
+    min-height: 90px;
+    caret-color: var(--accent);
+  }
+
+  .cm-gutters {
+    border-right: 1px solid var(--border);
+    background: var(--code-bg);
+    color: var(--text);
+  }
+
+  .cm-fat-cursor {
+    background: var(--accent) !important;
+    color: var(--bg) !important;
+  }
+
+  &:focus-within {
+    border-color: var(--accent);
+  }
+}
+
+.drill-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.drill-mode {
+  font-family: var(--mono);
+  color: var(--text-h);
+
+  &.insert,
+  &.replace {
+    color: var(--accent);
+  }
+}
+
+.drill-par {
+  opacity: 0.7;
+}
+
+.drill-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.drill-done {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.drill-shortcut {
+  font-family: var(--mono);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.drill-solution {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text);
+  font-size: 14px;
+
+  kbd {
+    padding: 2px 6px;
+    border: 1px solid var(--accent-border);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    background: var(--bg);
+    color: var(--accent);
+    font-family: var(--mono);
+  }
+
+  .keyboard-tab {
+    padding: 2px 10px;
+    font-size: 12px;
+  }
+}
+
+.drill-solution-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.drill-solution-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 22px;
+  color: var(--text-h);
+
+  li {
+    padding-left: 4px;
+  }
+
+  li::marker {
+    color: var(--text);
+  }
+
+  .drill-step {
+    margin-right: 10px;
+  }
+}
+
+.drill-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.drill-typed {
+  font-family: var(--mono);
+  color: var(--text-h);
+}

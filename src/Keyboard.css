@@ -247,3 +247,8 @@
   opacity: 1;
   visibility: visible;
 }
+
+.key-tooltip-shortcut {
+  font-family: var(--mono);
+  white-space: nowrap;
+}
