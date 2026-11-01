@@ -6,8 +6,9 @@
 //   goal needs and then <Esc>. Typing anything else can't be shorter.
 // - Counts are 2-9, and only used where Vim moves exactly that many times.
 // - Cursor-only tasks may move but not edit.
-// - Not simulated: u, U, <C-r>, ., ; and ,, r, R, J, y and p, /, ?, n, N, %,
-//   H, M, L, marks, registers, macros and text objects.
+// - Not simulated: u, <C-r>, ., ; and ,, r, R, J, ~, gU, > and <, y and p, /, ?,
+//   n, N, *, #, %, { and }, :s, marks, registers, macros and text objects.
+//   Tasks built around those supply their own known answer (`Task.solution`).
 import type { Task } from './tasks.ts'
 
 export type CommandSet = 'beginner' | 'complete'
@@ -17,6 +18,13 @@ export type CommandSet = 'beginner' | 'complete'
 export type Step = { keys: string; insert?: string }
 
 export type Solution = { steps: Step[]; cost: number }
+
+// Splits keys into keystrokes, where Vim notation like <CR> or <C-r> is one.
+export const splitKeys = (keys: string) => keys.match(/<(?:CR|Esc|C-.)>|./g) ?? []
+
+// Keystrokes for a whole step, including the <Esc> after any typed text.
+export const stepCost = (step: Step) =>
+  splitKeys(step.keys).length + (step.insert === undefined ? 0 : step.insert.length + 1)
 
 type State = { text: string; line: number; ch: number; want: number }
 
@@ -38,6 +46,7 @@ type Successor =
   | { step: Step; cost: number; state: State }
   | { step: Step; cost: number; done: true }
 
+// How many states the search may expand before giving up.
 const MAX_NODES = 300_000
 
 const docs = new Map<string, Doc>()
@@ -196,7 +205,7 @@ function motions(doc: Doc, s: State, set: CommandSet, forOperator: boolean): Tar
   const lastLine = doc.lines.length - 1
   add('G', 'G', lastLine, firstNonBlank(doc.lines[lastLine]), 'linewise')
   add('gg', 'gg', 0, firstNonBlank(doc.lines[0]), 'linewise')
-  for (let n = 1; n <= Math.min(9, doc.lines.length); n++) {
+  for (let n = 1; n <= doc.lines.length; n++) {
     add(`${n}G`, 'G', n - 1, firstNonBlank(doc.lines[n - 1]), 'linewise')
   }
 
@@ -233,7 +242,12 @@ type Range = { kind: 'char' | 'line'; from: number; to: number }
 // from..to inclusive. Returns null for cases this solver doesn't model.
 function operatorRange(doc: Doc, s: State, t: Target): Range | null {
   if (t.type === 'linewise') {
-    return { kind: 'line', from: Math.min(s.line, t.line), to: Math.max(s.line, t.line) }
+    const from = Math.min(s.line, t.line)
+    const to = Math.max(s.line, t.line)
+    // The editor's Vim leaves an empty line behind when a motion deletes the
+    // last lines (e.g. dk on the last line), unlike real Vim.
+    if (to === doc.lines.length - 1 && from > 0) return null
+    return { kind: 'line', from, to }
   }
   const a = offsetOf(doc, s.line, s.ch)
   const b = offsetOf(doc, t.line, t.ch)
@@ -343,7 +357,10 @@ function successors(s: State, set: CommandSet, task: Task): Successor[] {
   // Doubled operators act on whole lines.
   for (let n = 1; n <= 9 && s.line + n - 1 < doc.lines.length; n++) {
     const range: Range = { kind: 'line', from: s.line, to: s.line + n - 1 }
-    del(`${countKeys(n)}dd`, range)
+    // Like dk above: Ndd that reaches the last line leaves an empty line.
+    if (n === 1 || range.to < doc.lines.length - 1 || range.from === 0) {
+      del(`${countKeys(n)}dd`, range)
+    }
     if (complete) {
       const { pre, post } = changeContext(doc, range)
       insert(`${countKeys(n)}cc`, pre, post)
@@ -460,7 +477,10 @@ type Node = { state: State | null; g: number; parent: Node | null; step: Step | 
 // Fewest keystrokes to solve `task` using `set`'s commands. `task.par` is a
 // known solution, so the search never looks past it. Returns null only if
 // the search gives up.
-export function solve(task: Task, set: CommandSet): Solution | null {
+export function solve(task: Task, set: CommandSet, maxNodes = MAX_NODES): Solution | null {
+  // Setup keys and registers change what Vim starts with in ways this
+  // simulation can't see.
+  if (task.setup || task.registers) return null
   const start: State = { text: task.start, line: task.cursor.line, ch: task.cursor.ch, want: task.cursor.ch }
   const best = new Map<string, number>([[stateKey(start), 0]])
   const heap = new Heap<{ f: number; node: Node }>()
@@ -472,7 +492,7 @@ export function solve(task: Task, set: CommandSet): Solution | null {
     if (!node.state) return reconstruct(node)
     if (heuristic(node.state, task) === 0) return reconstruct(node)
     if (node.g > (best.get(stateKey(node.state)) ?? Infinity)) continue
-    if (++expanded > MAX_NODES) return null
+    if (++expanded > maxNodes) return null
 
     for (const next of successors(node.state, set, task)) {
       const g = node.g + next.cost

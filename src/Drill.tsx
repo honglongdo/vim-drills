@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { minimalSetup } from 'codemirror'
 import { EditorState } from '@codemirror/state'
 import { EditorView, lineNumbers } from '@codemirror/view'
-import { getCM, vim } from '@replit/codemirror-vim'
+import { getCM, vim, Vim } from '@replit/codemirror-vim'
 import { explainStep, visible } from './explain.ts'
-import { solve, type CommandSet, type Step } from './solver.ts'
-import { TASK_TYPES, type Pos, type Task } from './tasks.ts'
+import { solve, splitKeys, type CommandSet, type Solution, type Step } from './solver.ts'
+import { TASK_TYPES, type Pos, type Task, type TaskType } from './tasks.ts'
 import './Drill.css'
 
 const STORAGE_KEY = 'vim-drills:solved'
@@ -82,10 +82,22 @@ function TaskEditor({ task, onKeystroke, onModeChange, onSolved, onNext }: Edito
       }),
     })
 
-    getCM(view)?.on('vim-mode-change', (e: { mode: string }) => {
+    const cm = getCM(view)!
+    cm.on('vim-mode-change', (e: { mode: string }) => {
       callbacks.current.onModeChange(e.mode)
       setTimeout(check)
     })
+
+    // Fill registers and replay the setup keys before the player starts.
+    // Neither counts as keystrokes.
+    if (task.registers) {
+      const controller = Vim.getRegisterController()
+      controller.unnamedRegister.setText('')
+      for (const [name, line] of Object.entries(task.registers)) {
+        controller.getRegister(name).setText(line + '\n', true)
+      }
+    }
+    for (const key of splitKeys(task.setup ?? '')) Vim.handleKey(cm, key, 'user')
 
     const countKey = (e: KeyboardEvent) => {
       // Once solved, Enter moves on instead of reaching Vim.
@@ -97,7 +109,8 @@ function TaskEditor({ task, onKeystroke, onModeChange, onSolved, onNext }: Edito
       }
       if (!MODIFIER_KEYS.has(e.key)) callbacks.current.onKeystroke()
     }
-    view.contentDOM.addEventListener('keydown', countKey, true)
+    // On the whole editor, so keys typed into the : and / prompts count too.
+    view.dom.addEventListener('keydown', countKey, true)
 
     // Keep typing going to the editor: clicking anywhere else on the page
     // (tabs, buttons, empty space) hands focus straight back.
@@ -108,7 +121,7 @@ function TaskEditor({ task, onKeystroke, onModeChange, onSolved, onNext }: Edito
     view.focus()
 
     return () => {
-      view.contentDOM.removeEventListener('keydown', countKey, true)
+      view.dom.removeEventListener('keydown', countKey, true)
       document.removeEventListener('click', refocus)
       view.destroy()
     }
@@ -137,15 +150,27 @@ function StepKeys({ step }: { step: Step }) {
   )
 }
 
+// The fastest known answer: the solver's, or the task's own when it's at
+// least as short (it uses the command the task teaches).
+function fastest(task: Task, set: CommandSet): Solution | null {
+  // With a known answer to fall back on, don't search for long.
+  const found = solve(task, set, task.solution ? 3_000 : undefined)
+  if (task.solution && (!found || task.par <= found.cost)) {
+    return { steps: task.solution, cost: task.par }
+  }
+  return found
+}
+
 type DrillProps = {
-  onModeChange?: (mode: string) => void
   // Which commands count when working out the fastest solution.
   commandSet: CommandSet
 }
 
-function Drill({ onModeChange, commandSet }: DrillProps) {
-  const [index, setIndex] = useState(0)
-  const [task, setTask] = useState(() => TASK_TYPES[0].make())
+function Drill({ commandSet }: DrillProps) {
+  // Beginner shows the vimtutor tasks; Complete adds the rest.
+  const types = TASK_TYPES.filter((t) => commandSet === 'complete' || t.set === 'beginner')
+  const [typeId, setTypeId] = useState(types[0].id)
+  const [task, setTask] = useState(() => types[0].make())
   const [attempt, setAttempt] = useState(0)
   const [keystrokes, setKeystrokes] = useState(0)
   const [mode, setMode] = useState('normal')
@@ -153,16 +178,8 @@ function Drill({ onModeChange, commandSet }: DrillProps) {
   const [revealed, setRevealed] = useState(false)
   const [solved, setSolved] = useState(loadSolved)
 
-  const type = TASK_TYPES[index]
-  const solution = useMemo(() => solve(task, commandSet), [task, commandSet])
+  const solution = useMemo(() => fastest(task, commandSet), [task, commandSet])
   const par = solution?.cost ?? task.par
-
-  // Every visit to a task type gets freshly generated text.
-  const goTo = (i: number) => {
-    setIndex(i)
-    setTask(TASK_TYPES[i].make())
-    restart()
-  }
 
   const restart = () => {
     setAttempt((a) => a + 1)
@@ -171,6 +188,22 @@ function Drill({ onModeChange, commandSet }: DrillProps) {
     setDone(false)
     setRevealed(false)
   }
+
+  // Every visit to a task type gets freshly generated text.
+  const goTo = (t: TaskType) => {
+    setTypeId(t.id)
+    setTask(t.make())
+    restart()
+  }
+
+  // Switching to Beginner hides the current task if it's Complete-only.
+  let index = types.findIndex((t) => t.id === typeId)
+  if (index < 0) {
+    index = 0
+    goTo(types[0])
+  }
+  const type = types[index]
+  const next = types[(index + 1) % types.length]
 
   const handleSolved = () => {
     setDone(true)
@@ -181,14 +214,10 @@ function Drill({ onModeChange, commandSet }: DrillProps) {
     })
   }
 
-  useEffect(() => {
-    onModeChange?.(mode)
-  }, [mode, onModeChange])
-
   return (
     <div className="drill">
       <div className="drill-tasks" role="tablist" aria-label="Tasks">
-        {TASK_TYPES.map((t, i) => (
+        {types.map((t, i) => (
           <button
             key={t.id}
             type="button"
@@ -202,7 +231,7 @@ function Drill({ onModeChange, commandSet }: DrillProps) {
             ]
               .filter(Boolean)
               .join(' ')}
-            onClick={() => goTo(i)}
+            onClick={() => goTo(t)}
           >
             {solved.has(t.id) ? '✓' : i + 1}
           </button>
@@ -211,7 +240,7 @@ function Drill({ onModeChange, commandSet }: DrillProps) {
 
       <div className="drill-header">
         <h2>{type.title}</h2>
-        <span className="drill-lesson">vimtutor {type.lesson}</span>
+        <span className="drill-lesson">{type.source}</span>
       </div>
       <p className="drill-instructions">
         {/* Odd parts are the keystrokes written in brackets, e.g. "(dw)". */}
@@ -237,7 +266,7 @@ function Drill({ onModeChange, commandSet }: DrillProps) {
         onKeystroke={() => setKeystrokes((n) => n + 1)}
         onModeChange={setMode}
         onSolved={handleSolved}
-        onNext={() => goTo((index + 1) % TASK_TYPES.length)}
+        onNext={() => goTo(next)}
       />
 
       <div className="drill-status">
@@ -263,14 +292,14 @@ function Drill({ onModeChange, commandSet }: DrillProps) {
             type="button"
             className="keyboard-tab"
             title="Same kind of task, new text"
-            onClick={() => goTo(index)}
+            onClick={() => goTo(type)}
           >
             New
           </button>
           <button
             type="button"
             className={done ? 'keyboard-tab active' : 'keyboard-tab'}
-            onClick={() => goTo((index + 1) % TASK_TYPES.length)}
+            onClick={() => goTo(next)}
           >
             Next
           </button>

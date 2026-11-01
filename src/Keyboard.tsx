@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { CommandSet } from './solver.ts'
 import './Keyboard.css'
 
@@ -14,20 +14,6 @@ type Hint = {
   vimShift?: string
 }
 
-type Input = {
-  id: number
-  notation: string
-  code: string
-  shift: boolean
-  modified: boolean
-  // Typed as text in Insert/Replace mode, so it isn't a command.
-  typed: boolean
-}
-
-const MAX_INPUTS = 40
-
-const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'])
-
 const KEY_NAMES: Record<string, string> = {
   Escape: 'Esc',
   Enter: 'CR',
@@ -39,17 +25,6 @@ const KEY_NAMES: Record<string, string> = {
   ArrowDown: 'Down',
   ArrowLeft: 'Left',
   ArrowRight: 'Right',
-}
-
-// Write a key press the way Vim's docs do: `w`, `A`, `<Esc>`, `<C-r>`.
-function toVimNotation(e: KeyboardEvent): string | null {
-  if (MODIFIER_KEYS.has(e.key)) return null
-
-  const named = KEY_NAMES[e.key] ?? (e.key.length > 1 ? e.key : undefined)
-  const base = named ?? (e.ctrlKey || e.altKey ? e.key.toLowerCase() : e.key)
-  const prefix = (e.ctrlKey ? 'C-' : '') + (e.altKey ? 'A-' : '')
-
-  return prefix || named ? `<${prefix}${base}>` : base
 }
 
 const ROWS: Key[][] = [
@@ -408,48 +383,21 @@ const MODES: { id: CommandSet; label: string; hints: Record<string, Hint> }[] = 
 ]
 
 type KeyboardProps = {
-  // The drill editor's current Vim mode, e.g. 'normal' or 'insert'.
-  vimMode?: string
   // Which command set's hints to show (the tabs above the keyboard).
   commandSet: CommandSet
   onCommandSetChange: (set: CommandSet) => void
 }
 
 function Keyboard({
-  vimMode = 'normal',
   commandSet: modeId,
   onCommandSetChange: setModeId,
 }: KeyboardProps) {
   const [pressed, setPressed] = useState<Set<string>>(new Set())
-  const [inputs, setInputs] = useState<Input[]>([])
   const hints = MODES.find((m) => m.id === modeId)!.hints
   const shiftHeld = pressed.has('ShiftLeft') || pressed.has('ShiftRight')
 
-  // Read by the key listener below, which is only set up once.
-  const vimModeRef = useRef(vimMode)
   useEffect(() => {
-    vimModeRef.current = vimMode
-  }, [vimMode])
-
-  useEffect(() => {
-    let nextId = 0
-    const down = (e: KeyboardEvent) => {
-      setPressed((prev) => new Set(prev).add(e.code))
-
-      const notation = toVimNotation(e)
-      if (!notation || e.repeat) return
-      const input = {
-        id: nextId++,
-        notation,
-        code: e.code,
-        shift: e.shiftKey,
-        modified: e.ctrlKey || e.altKey || e.metaKey,
-        typed:
-          e.key !== 'Escape' &&
-          (vimModeRef.current === 'insert' || vimModeRef.current === 'replace'),
-      }
-      setInputs((prev) => [...prev, input].slice(-MAX_INPUTS))
-    }
+    const down = (e: KeyboardEvent) => setPressed((prev) => new Set(prev).add(e.code))
     const up = (e: KeyboardEvent) =>
       setPressed((prev) => {
         const next = new Set(prev)
@@ -487,85 +435,49 @@ function Keyboard({
         ))}
       </div>
 
-      <div className="keyboard-body">
-        <div className="keyboard" role="img" aria-label="Keyboard with Vim key hints">
-          {ROWS.map((row, i) => (
-            <div className="keyboard-row" key={i}>
-              {row.map((key) => {
-                const hint = hints[key.code] ?? {}
-                const vim = shiftHeld ? hint.vimShift : hint.vim
-                const isLetter = /^[A-Z]$/.test(key.label)
-                // With Shift held, the shifted character becomes the main label.
-                const label = isLetter
-                  ? shiftHeld ? key.label : key.label.toLowerCase()
-                  : shiftHeld && key.shift ? key.shift : key.label
-                const corner = key.shift && (shiftHeld ? key.label : key.shift)
-                const desc = DESCRIPTIONS[key.code] ?? {}
-                const description = vim && (shiftHeld ? desc.vimShift : desc.vim)
-                // The keystroke in Vim notation, e.g. `a`, `A`, `$`, `<Esc>`.
-                const named = KEY_NAMES[key.code === 'Space' ? ' ' : key.code]
-                const shortcut = named ? `<${named}>` : label
-                return (
-                  <div
-                    key={key.code}
-                    className={[
-                      'key',
-                      vim && 'has-vim',
-                      pressed.has(key.code) && 'pressed',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    style={{ flexGrow: key.width ?? 1 }}
-                  >
-                    {corner && <span className="key-shift">{corner}</span>}
-                    <span className="key-label">{label}</span>
-                    {vim && <span className="key-vim">{vim}</span>}
-                    {description && (
-                      <span className="key-tooltip" role="tooltip">
-                        {description}{' '}
-                        <span className="key-tooltip-shortcut">({shortcut})</span>
-                      </span>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          ))}
-        </div>
-
-        <div className="input-log">
-          <div className="input-log-header">
-            <span>Your input</span>
-            <button
-              type="button"
-              className="keyboard-tab"
-              onClick={() => setInputs([])}
-              disabled={inputs.length === 0}
-            >
-              Clear
-            </button>
+      <div className="keyboard" role="img" aria-label="Keyboard with Vim key hints">
+        {ROWS.map((row, i) => (
+          <div className="keyboard-row" key={i}>
+            {row.map((key) => {
+              const hint = hints[key.code] ?? {}
+              const vim = shiftHeld ? hint.vimShift : hint.vim
+              const isLetter = /^[A-Z]$/.test(key.label)
+              // With Shift held, the shifted character becomes the main label.
+              const label = isLetter
+                ? shiftHeld ? key.label : key.label.toLowerCase()
+                : shiftHeld && key.shift ? key.shift : key.label
+              const corner = key.shift && (shiftHeld ? key.label : key.shift)
+              const desc = DESCRIPTIONS[key.code] ?? {}
+              const description = vim && (shiftHeld ? desc.vimShift : desc.vim)
+              // The keystroke in Vim notation, e.g. `a`, `A`, `$`, `<Esc>`.
+              const named = KEY_NAMES[key.code === 'Space' ? ' ' : key.code]
+              const shortcut = named ? `<${named}>` : label
+              return (
+                <div
+                  key={key.code}
+                  className={[
+                    'key',
+                    vim && 'has-vim',
+                    pressed.has(key.code) && 'pressed',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  style={{ flexGrow: key.width ?? 1 }}
+                >
+                  {corner && <span className="key-shift">{corner}</span>}
+                  <span className="key-label">{label}</span>
+                  {vim && <span className="key-vim">{vim}</span>}
+                  {description && (
+                    <span className="key-tooltip" role="tooltip">
+                      {description}{' '}
+                      <span className="key-tooltip-shortcut">({shortcut})</span>
+                    </span>
+                  )}
+                </div>
+              )
+            })}
           </div>
-          <div className="input-log-keys">
-            {inputs.length === 0 ? (
-              <span className="input-log-empty">Start typing…</span>
-            ) : (
-              inputs.map((input) => {
-                const hint = hints[input.code] ?? {}
-                const meaning = input.modified || input.typed
-                  ? undefined
-                  : input.shift
-                    ? hint.vimShift
-                    : hint.vim
-                return (
-                  <div className="input-log-entry" key={input.id}>
-                    <kbd>{input.notation}</kbd>
-                    {meaning && <span className="input-log-meaning">{meaning}</span>}
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </div>
+        ))}
       </div>
     </div>
   )
