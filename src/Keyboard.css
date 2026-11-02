@@ -94,7 +94,44 @@
 
 .keyboard-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+}
+
+.keyboard-tabs-gap {
+  flex: 1;
+}
+
+.moonlander {
+  display: flex;
+  gap: 48px;
+
+  @media (max-width: 1024px) {
+    gap: 16px;
+  }
+}
+
+.moonlander-half {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+
+  @media (max-width: 1024px) {
+    gap: 4px;
+  }
+}
+
+.key.transparent {
+  opacity: 0.45;
+}
+
+.key.layer-key {
+  border-color: var(--accent);
+}
+
+.key-note {
+  color: var(--text);
 }
 
 .keyboard-tab {

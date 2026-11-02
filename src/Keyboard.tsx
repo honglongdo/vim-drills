@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
+import { MOONLANDER_LAYERS, type MoonKey } from './moonlander.ts'
+import { useOryxLayer } from './oryxLayer.ts'
 import type { CommandSet } from './solver.ts'
 import './Keyboard.css'
 
@@ -382,6 +384,80 @@ const MODES: { id: CommandSet; label: string; hints: Record<string, Hint> }[] = 
   { id: 'complete', label: 'Complete', hints: COMPLETE },
 ]
 
+type Layout = 'ansi' | 'moonlander'
+
+const LAYOUTS: { id: Layout; label: string }[] = [
+  { id: 'ansi', label: 'ANSI' },
+  { id: 'moonlander', label: 'Moonlander' },
+]
+
+const LAYOUT_STORAGE_KEY = 'vim-drills.layout'
+
+function loadLayout(): Layout {
+  try {
+    return localStorage.getItem(LAYOUT_STORAGE_KEY) === 'moonlander' ? 'moonlander' : 'ansi'
+  } catch {
+    return 'ansi'
+  }
+}
+
+type KeyCapProps = {
+  k: MoonKey
+  hints: Record<string, Hint>
+  shiftHeld: boolean
+  pressed: Set<string>
+  style: CSSProperties
+}
+
+function KeyCap({ k, hints, shiftHeld, pressed, style }: KeyCapProps) {
+  const hint = (k.code && hints[k.code]) || {}
+  const desc = (k.code && DESCRIPTIONS[k.code]) || {}
+  // Keys like ( already send Shift, so they always show the shifted hint.
+  const useShift = shiftHeld || k.shifted
+  const vim = useShift ? hint.vimShift : hint.vim
+  const isLetter = /^[A-Z]$/.test(k.label)
+  // With Shift held, the shifted character becomes the main label.
+  const label = isLetter
+    ? shiftHeld ? k.label : k.label.toLowerCase()
+    : shiftHeld && k.shift ? k.shift : k.label
+  const corner = k.shift && (shiftHeld ? k.label : k.shift)
+  const description = vim && (useShift ? desc.vimShift : desc.vim)
+  // The keystroke in Vim notation, e.g. `a`, `A`, `$`, `<Esc>`.
+  const named = k.code && KEY_NAMES[k.code === 'Space' ? ' ' : k.code]
+  const shortcut = named ? `<${named}>` : label
+  const tooltip = k.title ?? description
+  return (
+    <div
+      className={[
+        'key',
+        vim && 'has-vim',
+        k.note && 'layer-key',
+        k.transparent && 'transparent',
+        k.code && pressed.has(k.code) && 'pressed',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      style={style}
+    >
+      {corner && <span className="key-shift">{corner}</span>}
+      <span className="key-label">{label}</span>
+      {vim && <span className="key-vim">{vim}</span>}
+      {k.note && <span className="key-vim key-note">{k.note}</span>}
+      {tooltip && (
+        <span className="key-tooltip" role="tooltip">
+          {tooltip}
+          {description && (
+            <>
+              {' '}
+              <span className="key-tooltip-shortcut">({shortcut})</span>
+            </>
+          )}
+        </span>
+      )}
+    </div>
+  )
+}
+
 type KeyboardProps = {
   // Which command set's hints to show (the tabs above the keyboard).
   commandSet: CommandSet
@@ -393,8 +469,21 @@ function Keyboard({
   onCommandSetChange: setModeId,
 }: KeyboardProps) {
   const [pressed, setPressed] = useState<Set<string>>(new Set())
+  const [layout, setLayout] = useState<Layout>(loadLayout)
+  const [layer, setLayer] = useState(0)
+  // Layers this view doesn't draw (e.g. Layer 2) mostly fall through to Base.
+  const live = useOryxLayer((n) => setLayer(n < MOONLANDER_LAYERS.length ? n : 0))
   const hints = MODES.find((m) => m.id === modeId)!.hints
   const shiftHeld = pressed.has('ShiftLeft') || pressed.has('ShiftRight')
+
+  const changeLayout = (next: Layout) => {
+    setLayout(next)
+    try {
+      localStorage.setItem(LAYOUT_STORAGE_KEY, next)
+    } catch {
+      // Storage can be blocked; the choice just won't be remembered.
+    }
+  }
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => setPressed((prev) => new Set(prev).add(e.code))
@@ -433,51 +522,90 @@ function Keyboard({
             {mode.label}
           </button>
         ))}
+
+        <span className="keyboard-tabs-gap" />
+        {layout === 'moonlander' &&
+          MOONLANDER_LAYERS.map((l, i) => (
+            <button
+              key={l.name}
+              type="button"
+              role="tab"
+              aria-selected={i === layer}
+              className={i === layer ? 'keyboard-tab active' : 'keyboard-tab'}
+              onClick={() => setLayer(i)}
+            >
+              {l.name}
+            </button>
+          ))}
+        {layout === 'moonlander' && live.supported && (
+          <button
+            type="button"
+            className={live.connected ? 'keyboard-tab active' : 'keyboard-tab'}
+            disabled={live.connected}
+            title={
+              live.connected
+                ? 'Following the layer keys on your keyboard'
+                : 'Connect over WebHID so the view follows your layer keys'
+            }
+            onClick={live.connect}
+          >
+            {live.connected ? '● Live' : 'Connect keyboard'}
+          </button>
+        )}
+        {LAYOUTS.map((l) => (
+          <button
+            key={l.id}
+            type="button"
+            role="tab"
+            aria-selected={l.id === layout}
+            className={l.id === layout ? 'keyboard-tab active' : 'keyboard-tab'}
+            onClick={() => changeLayout(l.id)}
+          >
+            {l.label}
+          </button>
+        ))}
       </div>
 
       <div className="keyboard" role="img" aria-label="Keyboard with Vim key hints">
-        {ROWS.map((row, i) => (
-          <div className="keyboard-row" key={i}>
-            {row.map((key) => {
-              const hint = hints[key.code] ?? {}
-              const vim = shiftHeld ? hint.vimShift : hint.vim
-              const isLetter = /^[A-Z]$/.test(key.label)
-              // With Shift held, the shifted character becomes the main label.
-              const label = isLetter
-                ? shiftHeld ? key.label : key.label.toLowerCase()
-                : shiftHeld && key.shift ? key.shift : key.label
-              const corner = key.shift && (shiftHeld ? key.label : key.shift)
-              const desc = DESCRIPTIONS[key.code] ?? {}
-              const description = vim && (shiftHeld ? desc.vimShift : desc.vim)
-              // The keystroke in Vim notation, e.g. `a`, `A`, `$`, `<Esc>`.
-              const named = KEY_NAMES[key.code === 'Space' ? ' ' : key.code]
-              const shortcut = named ? `<${named}>` : label
-              return (
-                <div
+        {layout === 'ansi' ? (
+          ROWS.map((row, i) => (
+            <div className="keyboard-row" key={i}>
+              {row.map((key) => (
+                <KeyCap
                   key={key.code}
-                  className={[
-                    'key',
-                    vim && 'has-vim',
-                    pressed.has(key.code) && 'pressed',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
+                  k={key}
+                  hints={hints}
+                  shiftHeld={shiftHeld}
+                  pressed={pressed}
                   style={{ flexGrow: key.width ?? 1 }}
-                >
-                  {corner && <span className="key-shift">{corner}</span>}
-                  <span className="key-label">{label}</span>
-                  {vim && <span className="key-vim">{vim}</span>}
-                  {description && (
-                    <span className="key-tooltip" role="tooltip">
-                      {description}{' '}
-                      <span className="key-tooltip-shortcut">({shortcut})</span>
-                    </span>
-                  )}
-                </div>
-              )
-            })}
+                />
+              ))}
+            </div>
+          ))
+        ) : (
+          <div className="moonlander">
+            {(['left', 'right'] as const).map((half) => (
+              <div className="moonlander-half" key={half}>
+                {MOONLANDER_LAYERS[layer].keys.map(
+                  (key, i) =>
+                    key.half === half && (
+                      <KeyCap
+                        key={i}
+                        k={key}
+                        hints={hints}
+                        shiftHeld={shiftHeld}
+                        pressed={pressed}
+                        style={{
+                          gridRow: key.row + 1,
+                          gridColumn: `${key.col} / span ${key.span}`,
+                        }}
+                      />
+                    ),
+                )}
+              </div>
+            ))}
           </div>
-        ))}
+        )}
       </div>
     </div>
   )
