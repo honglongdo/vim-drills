@@ -109,6 +109,12 @@
     color: var(--text);
   }
 
+  .drill-target {
+    border-radius: 2px;
+    outline: 2px solid var(--accent-border);
+    background: var(--accent-bg);
+  }
+
   .cm-fat-cursor {
     background: var(--accent) !important;
     color: var(--bg) !important;
@@ -136,6 +142,13 @@
   &.replace {
     color: var(--accent);
   }
+}
+
+.drill-pending {
+  min-width: 8ch;
+  font-family: var(--mono);
+  color: var(--accent);
+  white-space: pre;
 }
 
 .drill-par {
