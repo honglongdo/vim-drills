@@ -19,6 +19,8 @@ export type Task = {
   // A known answer, for tasks built around commands the solver doesn't
   // simulate. `par` is its cost.
   solution?: Step[]
+  // Mark the goal cursor's character in the editor.
+  highlight?: boolean
 }
 
 // A kind of challenge. `make` builds a fresh random Task each time.
@@ -179,6 +181,24 @@ const known = (...steps: Step[]) => {
 // A text file built from the sentences, one per line.
 const file = (lines: number) => shuffle(SENTENCES).slice(0, lines)
 
+// Two code snippets with a blank line between them.
+const code = () => {
+  const [a, b] = shuffle(SNIPPETS)
+  return [...a, '', ...b]
+}
+
+// Every non-blank character in `lines`.
+const spots = (lines: string[]) =>
+  lines.flatMap((l, line) => [...l].map((c, ch) => ({ line, ch, c })).filter(({ c }) => c !== ' '))
+
+// Keystrokes for some way of moving from `from` to `to`: along the line with
+// h or l, or to the line with nG and then along it. Not always the fewest.
+const reach = (lines: string[], from: Pos, to: Pos) => {
+  const along = (a: number, b: number) => moveCost(Math.abs(a - b))
+  const jump = String(to.line + 1).length + 1 + along(lines[to.line].search(/\S/), to.ch)
+  return from.line === to.line ? Math.min(along(from.ch, to.ch), jump) : jump
+}
+
 export const TASK_TYPES: TaskType[] = [
   {
     id: 'hjkl',
@@ -187,25 +207,22 @@ export const TASK_TYPES: TaskType[] = [
     set: 'beginner',
     keys: ['h', 'j', 'k', 'l'],
     make() {
-      const rows = 4
-      const cols = 7
-      const from = { line: random(rows), ch: random(cols) }
+      const lines = pick(SONGS)
+      const all = spots(lines)
+      const from = pick(all)
       let to = from
-      while (to.line === from.line && to.ch === from.ch) {
-        to = { line: random(rows), ch: random(cols) }
-      }
-      const grid = Array.from({ length: rows }, (_, line) =>
-        Array.from({ length: cols }, (_, ch) =>
-          line === to.line && ch === to.ch ? 'X' : '.',
-        ).join(''),
-      ).join('\n')
+      // A few lines and columns away, on a letter rather than a space.
+      while (to === from || Math.abs(to.line - from.line) + Math.abs(to.ch - from.ch) > 12) to = pick(all)
+      const cursor = { line: from.line, ch: from.ch }
+      const goal = { line: to.line, ch: to.ch }
       return {
         instructions:
-          'Move the cursor onto the X. Move left (h), down (j), up (k) or right (l).',
-        start: grid,
-        cursor: from,
-        goal: { cursor: to },
-        par: Math.abs(to.line - from.line) + Math.abs(to.ch - from.ch),
+          'Move the cursor onto the highlighted character. Move left (h), down (j), up (k) or right (l).',
+        start: lines.join('\n'),
+        cursor,
+        goal: { cursor: goal },
+        highlight: true,
+        par: reach(lines, cursor, goal),
       }
     },
   },
@@ -1331,6 +1348,123 @@ export const TASK_TYPES: TaskType[] = [
         cursor: { line: from, ch: lines[from].length - 1 },
         goal: { cursor: { line: to, ch: lines[to].search(/\S/) } },
         par: 2,
+      }
+    },
+  },
+
+  // Vim Hero's movement lessons, practised on a highlighted target. The
+  // solver works out the fastest way there.
+  {
+    id: 'web',
+    title: 'Hop between words',
+    source: 'Vim Hero: Moving by Words',
+    set: 'complete',
+    keys: ['w', 'e', 'b'],
+    make() {
+      const line = shuffle(SENTENCES).slice(0, 2).join(' ')
+      const list = words(line)
+      const from = random(list.length)
+      // 2-6 words away, forward or back.
+      const options = list
+        .map((_, i) => i)
+        .filter((i) => Math.abs(i - from) >= 2 && Math.abs(i - from) <= 6)
+      const to = pick(options)
+      const start = wordStart(line, to)
+      const ch = Math.random() < 0.5 ? start : start + stripPeriod(list[to]).length - 1
+      const cursor = { line: 0, ch: wordStart(line, from) }
+      return {
+        instructions:
+          'Move onto the highlighted character. Hop forward to word starts (w) or word ends (e), or back to word starts (b), with a count to hop several at once.',
+        start: line,
+        cursor,
+        goal: { cursor: { line: 0, ch } },
+        highlight: true,
+        par: reach([line], cursor, { line: 0, ch }),
+      }
+    },
+  },
+  {
+    id: 'line-ends',
+    title: 'Line ends',
+    source: 'Vim Hero: Moving to Line Ends',
+    set: 'complete',
+    keys: ['0', '^', '_', '$'],
+    make() {
+      const lines = code()
+      const indented = lines.map((_, i) => i).filter((i) => /^ +\S.{3,}/.test(lines[i]))
+      const line = pick(indented)
+      const text = lines[line]
+      const first = text.search(/\S/)
+      const ch = first + 1 + random(text.length - first - 2)
+      const [to, keys] = pick([
+        [0, '0'],
+        [first, '^'],
+        [text.length - 1, '$'],
+      ] as const)
+      const where = { '0': 'very start of the line (0)', '^': 'first non-blank character (^ or _)', $: 'end of the line ($)' }[keys]
+      return {
+        instructions: `Jump to the ${where}.`,
+        start: lines.join('\n'),
+        cursor: { line, ch },
+        goal: { cursor: { line, ch: to } },
+        highlight: true,
+        ...known({ keys }),
+      }
+    },
+  },
+  {
+    id: 'relative-jumps',
+    title: 'Relative line jumps',
+    source: 'Vim Hero: Relative Line Jumps',
+    set: 'complete',
+    keys: ['j', 'k'],
+    make() {
+      for (;;) {
+        const lines = code()
+        const from = random(lines.length)
+        // Not the last line, where G gets there faster.
+        const to = random(lines.length - 1)
+        const k = Math.abs(to - from)
+        if (k < 3 || k > 9 || !lines[from] || !lines[to]) continue
+        // j and k keep the column, or stop at the end of a shorter line.
+        const ch = lines[from].search(/\S/)
+        const key = to > from ? 'j' : 'k'
+        return {
+          instructions: `Jump to the highlighted line, ${k} lines ${to > from ? 'down' : 'up'}. Count the lines from the cursor, then move (${k}${key}).`,
+          start: lines.join('\n'),
+          cursor: { line: from, ch },
+          goal: { cursor: { line: to, ch: Math.min(ch, lines[to].length - 1) } },
+          highlight: true,
+          ...known({ keys: `${k}${key}` }),
+        }
+      }
+    },
+  },
+  {
+    id: 'targets',
+    title: 'Movement practice',
+    source: 'Vim Hero: Practice (movement)',
+    set: 'complete',
+    keys: ['w', 'b', 'e', 'f', 't', 'G', '$'],
+    make() {
+      for (;;) {
+        const lines = code()
+        const all = spots(lines)
+        const from = pick(all)
+        const to = pick(all)
+        // Far enough that the route takes some thought.
+        if (Math.abs(to.line - from.line) + Math.abs(to.ch - from.ch) < 6) continue
+        const cursor = { line: from.line, ch: from.ch }
+        const goal = { line: to.line, ch: to.ch }
+        return {
+          instructions:
+            'Move onto the highlighted character in as few keystrokes as you can. Any motion goes: words, finds, line ends, line jumps.',
+          start: lines.join('\n'),
+          cursor,
+          goal: { cursor: goal },
+          highlight: true,
+          par: reach(lines, cursor, goal),
+        }
       }
     },
   },
